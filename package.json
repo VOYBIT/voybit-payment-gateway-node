@@ -1,0 +1,12 @@
+{
+  "name": "voybit-payment-gateway",
+  "version": "0.1.0",
+  "description": "Voybit payment gateway SDK for Node.js. Create a crypto payment and verify webhook signatures.",
+  "license": "MIT",
+  "type": "module",
+  "exports": "./index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": ["index.js", "README.md", "LICENSE"]
+}

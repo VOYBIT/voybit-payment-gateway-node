@@ -6,6 +6,8 @@ Create a payment and verify its webhook. Keep the API key and webhook secret on 
 import { createClient, verifyWebhook } from 'voybit-payment-gateway'
 ```
 
+TypeScript declarations are included.
+
 ## Create a payment
 
 `POST https://api.voybit.com/api/v1/gateway/payments`

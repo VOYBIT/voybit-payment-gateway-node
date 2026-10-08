@@ -4,8 +4,10 @@ export const DEFAULT_BASE_URL = 'https://api.voybit.com/api/v1'
 
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504])
 const IDEMPOTENCY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/
+const POSITIVE_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/
+const FIAT_CURRENCY = /^[A-Z]{3}$/
 const TOLERANCE_SECONDS = 300
-const USER_AGENT = 'voybit-payment-gateway-node/0.1.0'
+const USER_AGENT = 'voybit-payment-gateway-node/0.2.0'
 
 export class VoybitError extends Error {
   constructor(status, code, message, requestId = '') {
@@ -20,31 +22,81 @@ export class VoybitError extends Error {
 
 export function createClient({ apiKey, baseURL = DEFAULT_BASE_URL, fetch: fetchImpl = globalThis.fetch } = {}) {
   if (!apiKey) throw new TypeError('API key is required')
-  const endpoint = `${String(baseURL).replace(/\/$/, '')}/gateway/payments`
+  const root = String(baseURL).replace(/\/$/, '')
 
   return {
     async createPayment(request, idempotencyKey) {
-      if (!IDEMPOTENCY.test(idempotencyKey ?? '')) {
-        throw new TypeError('Idempotency-Key must be 8 to 128 URL-safe characters')
-      }
-      const body = JSON.stringify(request ?? {})
-      let lastError
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        try {
-          return await postPayment(fetchImpl, endpoint, apiKey, idempotencyKey, body)
-        } catch (error) {
-          const canRetry = !(error instanceof VoybitError) || RETRYABLE.has(error.status)
-          if (!canRetry || attempt === 3) throw error
-          lastError = error
-          await sleep(delayFor(error, attempt))
-        }
-      }
-      throw lastError
+      return createResource(fetchImpl, `${root}/gateway/payments`, apiKey, request ?? {}, idempotencyKey, 'payment')
+    },
+
+    async createCheckoutSession(request, idempotencyKey) {
+      return createResource(
+        fetchImpl,
+        `${root}/gateway/checkout-sessions`,
+        apiKey,
+        checkoutSessionBody(request),
+        idempotencyKey,
+        'checkoutSession',
+      )
     },
   }
 }
 
-async function postPayment(fetchImpl, endpoint, apiKey, idempotencyKey, body) {
+async function createResource(fetchImpl, endpoint, apiKey, request, idempotencyKey, resultKey) {
+  if (!IDEMPOTENCY.test(idempotencyKey ?? '')) {
+    throw new TypeError('Idempotency-Key must be 8 to 128 URL-safe characters')
+  }
+  const body = JSON.stringify(request)
+  let lastError
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await postResource(fetchImpl, endpoint, apiKey, idempotencyKey, body, resultKey)
+    } catch (error) {
+      const canRetry = !(error instanceof VoybitError) || RETRYABLE.has(error.status)
+      if (!canRetry || attempt === 3) throw error
+      lastError = error
+      await sleep(delayFor(error, attempt))
+    }
+  }
+  throw lastError
+}
+
+function checkoutSessionBody(request) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    throw new TypeError('checkout session request is required')
+  }
+  const amount = request.fiat_amount
+  if (typeof amount !== 'string' || !POSITIVE_DECIMAL.test(amount) || !/[1-9]/.test(amount)) {
+    throw new TypeError('fiat_amount must be a positive decimal string')
+  }
+  if (typeof request.fiat_currency !== 'string' || !FIAT_CURRENCY.test(request.fiat_currency)) {
+    throw new TypeError('fiat_currency must be a three-letter uppercase currency code')
+  }
+  if (request.payment_window_seconds !== undefined
+      && (!Number.isInteger(request.payment_window_seconds) || request.payment_window_seconds <= 0)) {
+    throw new TypeError('payment_window_seconds must be a positive integer')
+  }
+  if (request.description !== undefined && typeof request.description !== 'string') {
+    throw new TypeError('description must be a string')
+  }
+  if (request.metadata !== undefined
+      && (!request.metadata || typeof request.metadata !== 'object' || Array.isArray(request.metadata))) {
+    throw new TypeError('metadata must be an object')
+  }
+
+  const body = {
+    fiat_amount: amount,
+    fiat_currency: request.fiat_currency,
+  }
+  if (request.description !== undefined) body.description = request.description
+  if (request.metadata !== undefined) body.metadata = request.metadata
+  if (request.payment_window_seconds !== undefined) {
+    body.payment_window_seconds = request.payment_window_seconds
+  }
+  return body
+}
+
+async function postResource(fetchImpl, endpoint, apiKey, idempotencyKey, body, resultKey) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 20_000)
   try {
@@ -66,7 +118,7 @@ async function postPayment(fetchImpl, endpoint, apiKey, idempotencyKey, body) {
     const decoded = decodeJSON(raw, response.status, requestId)
     if (response.ok) {
       return {
-        payment: decoded,
+        [resultKey]: decoded,
         replayed: response.headers.get('idempotency-replayed') === 'true',
         requestId,
       }

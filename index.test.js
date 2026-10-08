@@ -51,6 +51,61 @@ test('createPayment does not retry a validation error', async () => {
   )
 })
 
+test('createCheckoutSession posts only hosted checkout fields', async () => {
+  let seen
+  const client = createClient({
+    apiKey: 'vb_test_example_secret',
+    baseURL: 'https://payments.test/api/v1',
+    fetch: async (url, options) => {
+      seen = { url, options }
+      return jsonResponse(201, {
+        session_id: '7155d76a-9f81-40eb-9233-878aac50eb20',
+        public_id: 'nYVvXxsYGr5LZk8Dn7hU0Q',
+        checkout_url: 'https://voybit.com/pay/nYVvXxsYGr5LZk8Dn7hU0Q',
+        status: 'open',
+      }, { 'x-request-id': 'req_session_1' })
+    },
+  })
+
+  const created = await client.createCheckoutSession({
+    fiat_amount: '25.00',
+    fiat_currency: 'USD',
+    description: 'Order 1001',
+    metadata: { order_id: '1001' },
+    payment_window_seconds: 1800,
+    asset_id: 'must-not-be-sent',
+    crypto_amount: '25',
+  }, 'order:1001:attempt:1')
+
+  assert.equal(seen.url, 'https://payments.test/api/v1/gateway/checkout-sessions')
+  assert.deepEqual(JSON.parse(seen.options.body), {
+    fiat_amount: '25.00',
+    fiat_currency: 'USD',
+    description: 'Order 1001',
+    metadata: { order_id: '1001' },
+    payment_window_seconds: 1800,
+  })
+  assert.equal(created.checkoutSession.status, 'open')
+  assert.equal(created.checkoutSession.session_id, '7155d76a-9f81-40eb-9233-878aac50eb20')
+  assert.equal(created.requestId, 'req_session_1')
+})
+
+test('createCheckoutSession validates amount, currency, and idempotency', async () => {
+  const client = createClient({ apiKey: 'vb_test_example_secret', fetch: async () => jsonResponse(201, {}) })
+  await assert.rejects(
+    () => client.createCheckoutSession({ fiat_amount: '0', fiat_currency: 'USD' }, 'order:1001:attempt:1'),
+    /positive decimal/,
+  )
+  await assert.rejects(
+    () => client.createCheckoutSession({ fiat_amount: '10.00', fiat_currency: 'usd' }, 'order:1001:attempt:1'),
+    /three-letter/,
+  )
+  await assert.rejects(
+    () => client.createCheckoutSession({ fiat_amount: '10.00', fiat_currency: 'USD' }, 'short'),
+    /Idempotency-Key/,
+  )
+})
+
 test('verifyWebhook accepts the raw body and rejects a change', () => {
   const raw = Buffer.from('{"type":"payment.paid","status":"paid"}')
   const now = new Date('2026-10-07T16:00:00Z')

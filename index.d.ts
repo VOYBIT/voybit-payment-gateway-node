@@ -47,8 +47,42 @@ export interface CreatedPayment {
   requestId: string
 }
 
+export interface CreateCheckoutSessionRequest {
+  fiat_amount: string
+  fiat_currency: string
+  description?: string
+  metadata?: Record<string, unknown>
+  payment_window_seconds?: number
+}
+
+export interface CheckoutSession {
+  id?: string
+  session_id?: string
+  public_id?: string
+  status?: string
+  checkout_url: string
+  fiat_amount?: string
+  fiat_currency?: string
+  description?: string
+  metadata?: Record<string, unknown>
+  payment_window_seconds?: number
+  expires_at?: string
+  created_at?: string
+  [key: string]: unknown
+}
+
+export interface CreatedCheckoutSession {
+  checkoutSession: CheckoutSession
+  replayed: boolean
+  requestId: string
+}
+
 export interface PaymentGatewayClient {
   createPayment(request: CreatePaymentRequest, idempotencyKey: string): Promise<CreatedPayment>
+  createCheckoutSession(
+    request: CreateCheckoutSessionRequest,
+    idempotencyKey: string,
+  ): Promise<CreatedCheckoutSession>
 }
 
 export function createClient(options: {

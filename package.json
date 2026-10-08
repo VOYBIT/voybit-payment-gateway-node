@@ -1,7 +1,7 @@
 {
   "name": "voybit-payment-gateway",
-  "version": "0.1.0",
-  "description": "Create a Voybit payment and verify its webhook.",
+  "version": "0.2.0",
+  "description": "Create Voybit hosted checkout sessions or explicit-asset payments and verify webhooks.",
   "license": "MIT",
   "type": "module",
   "exports": {
